@@ -1,8 +1,81 @@
 import os
 import time
 import sys
-from typing import Optional, Any
+from typing import Optional, Any, List, Union
 from datetime import datetime
+from dataclasses import dataclass
+from typing import List, Dict, Optional
+import sqlite3
+import json
+import hashlib
+
+@dataclass
+class User:
+    id: int
+    username: str
+    email: str
+    progress: Dict
+    achievements: List[str]
+    xp: int
+    streak: int
+    last_active: datetime
+
+class PythonTutorial:
+    def __init__(self):
+        self.db = Database()
+        self.auth = Authentication()
+        self.analytics = Analytics()
+        self.achievements = AchievementSystem()
+        self.content = ContentManager()
+        self.social = SocialFeatures()
+    
+    def initialize(self):
+        self.db.setup()
+        self.load_content()
+        self.setup_gui()
+    
+    def run(self):
+        self.show_welcome()
+        if self.auth.login_or_register():
+            self.main_loop()
+    
+    def main_loop(self):
+        while True:
+            self.update_progress()
+            self.check_achievements()
+            self.show_recommendations()
+            self.handle_user_input()
+            self.save_analytics()
+
+class Database:
+    def setup(self):
+        # Implementar esquema do banco de dados
+        pass
+
+class Authentication:
+    def login_or_register(self) -> bool:
+        # Implementar sistema de autenticação
+        pass
+
+class Analytics:
+    def track_progress(self, user_id: int, action: str):
+        # Implementar tracking de ações
+        pass
+
+class AchievementSystem:
+    def check_achievements(self, user: User):
+        # Implementar sistema de conquistas
+        pass
+
+class ContentManager:
+    def load_modules(self):
+        # Carregar conteúdo dinâmico
+        pass
+
+class SocialFeatures:
+    def handle_social(self):
+        # Implementar recursos sociais
+        pass
 
 class Tutorial:
     def __init__(self):
@@ -38,66 +111,93 @@ class Tutorial:
         # Simulação de carregamento de progresso
         self.print_loading("Carregando seu progresso")
 
-    def get_user_input(self, prompt: str, valid_options: Optional[list] = None) -> str:
+    def get_user_input(self, prompt: str, valid_options: Optional[List[str]] = None) -> str:
         while True:
-            response = input(f"{prompt}: ").strip()
-            if valid_options is None or response.lower() in valid_options:
-                return response
-            print(f"Por favor, escolha uma das opções válidas: {', '.join(valid_options)}")
+            if '\n' in prompt:
+                print(prompt)
+                user_input = input(">>> ")
+            else:
+                user_input = input(f"\n{prompt}: ")
+            
+            if valid_options and user_input.lower() not in valid_options:
+                print(f"\nOpção inválida. Escolha entre: {', '.join(valid_options)}")
+                continue
+            return user_input
+
+    def get_multiline_input(self, prompt: str) -> str:
+        print(f"\n{prompt}")
+        print("(Digite seu código e pressione Ctrl+D ou Ctrl+Z (Windows) para finalizar)")
+        lines = []
+        try:
+            while True:
+                line = input("... ")
+                lines.append(line)
+        except EOFError:
+            pass
+        return '\n'.join(lines)
 
     def show_lesson(self, topic: str, content: str) -> None:
         self.print_header(topic)
         print(content)
         input("\nPressione ENTER para continuar...")
 
-    def run_practice(self, topic: str, instruction: str, correct_answer: Any, 
-                    example: Optional[str] = None, dica: Optional[str] = None) -> bool:
-        self.total_exercicios += 1
-        self.print_header(f"Prática: {topic}")
-        print(instruction)
+    def run_practice(self, titulo, pergunta, respostas_validas, example="", dica="", is_multiline=False):
+        # Adiciona verificação de espaços em branco e normalização
+        def normalizar_codigo(codigo):
+            # Remove espaços em branco extras e linhas vazias
+            return "\n".join(line.strip() for line in codigo.split("\n") if line.strip())
         
+        # Modifica a validação para usar a função normalizar_codigo
+        def validar_resposta(resposta, respostas_validas):
+            resposta_norm = normalizar_codigo(resposta)
+            return any(normalizar_codigo(valid) == resposta_norm for valid in respostas_validas)
+
+        # Resto do código permanece o mesmo
+        self.print_header(f"Prática: {titulo}")
+        print(f"\n{pergunta}\n")
         if example:
-            print(f"\nExemplo: {example}")
+            print(f"Exemplo:\n{example}\n")
         
-        if dica:
-            ver_dica = self.get_user_input("\nDeseja ver uma dica? (s/n)", ['s', 'n'])
-            if ver_dica.lower() == 's':
-                print(f"\nDica: {dica}")
-
-        tentativas = 0
-        max_tentativas = 3
-        while tentativas < max_tentativas:
-            resposta = self.get_user_input("\nSua resposta")
-            is_correct = self.check_answer(resposta, correct_answer)
+        tentativas = 3
+        while tentativas > 0:
+            if dica:
+                ver_dica = input("\nDeseja ver uma dica? (s/n)\n>>> ").lower()
+                if ver_dica == 's':
+                    print(f"\nDica:\n{dica}\n")
             
-            if is_correct:
+            print("\nSua resposta:")
+            print("(Digite seu código e pressione Ctrl+D ou Ctrl+Z (Windows) para finalizar)")
+            
+            linhas = []
+            try:
+                while True:
+                    linha = input("... ")
+                    linhas.append(linha)
+            except (EOFError, KeyboardInterrupt):
+                resposta = "\n".join(linhas)
+                
+            if validar_resposta(resposta, respostas_validas):
+                print("\n✅ Correto! Muito bem!")
                 self.pontuacao += 1
-                print("\n✅ Parabéns! Resposta correta!")
-                break
+                return True
+            
+            tentativas -= 1
+            if tentativas > 0:
+                print(f"\n❌ Tente novamente! Você ainda tem {tentativas} tentativa(s).")
             else:
-                tentativas += 1
-                if tentativas < max_tentativas:
-                    print(f"\n❌ Tente novamente! Você ainda tem {max_tentativas - tentativas} tentativa(s).")
-                else:
-                    print(f"\n❌ A resposta correta era: {correct_answer}")
-                    print("Continue praticando!")
-        
-        self.historico.append({
-            'topico': topic,
-            'correto': is_correct,
-            'resposta_user': resposta,
-            'resposta_correta': correct_answer,
-            'tentativas': tentativas,
-            'data': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-        
-        input("\nPressione ENTER para continuar...")
-        return is_correct
+                print("\n❌ Não foi dessa vez. A resposta correta seria:")
+                print(example)
+                return False
 
-    def check_answer(self, user_answer: str, correct_answer: Any) -> bool:
-        if isinstance(correct_answer, list):
-            return user_answer.lower() in [str(ans).lower() for ans in correct_answer]
-        return user_answer.lower() == str(correct_answer).lower()
+    def check_answer(self, user_answer: str, correct_answers: Union[Any, List[Any]], is_multiline: bool = False) -> bool:
+        if isinstance(correct_answers, list):
+            if is_multiline:
+                # Remove espaços em branco extras e normaliza quebras de linha
+                user_answer = '\n'.join(line.rstrip() for line in user_answer.splitlines())
+                return any(user_answer == '\n'.join(ans.rstrip() for ans in correct.splitlines()) 
+                          for correct in correct_answers)
+            return user_answer in correct_answers
+        return user_answer == correct_answers
 
     def show_progress(self) -> None:
         self.print_header("Seu Progresso")
@@ -376,28 +476,183 @@ class Tutorial:
             - ZeroDivisionError""")
 
         self.run_practice("Exceções",
-            "Escreva um bloco try-except básico",
-            ["try:\n    pass\nexcept:", "try:\n    pass\nexcept Exception:", 
-             "try:\n    pass\nexcept Exception as e:"],
-            example="try:\n    pass\nexcept:",
-            dica="Use 'try:' seguido de 'except:'")
+            "Escreva um bloco try-except básico (use \\n para quebras de linha)",
+            ["try:\\n    pass\\nexcept:", 
+             "try:\\n    pass\\nexcept Exception:", 
+             "try:\\n    pass\\nexcept Exception as e:"],
+            example="try:\\n    pass\\nexcept:",
+            dica="Digite 'try:\\n    pass\\nexcept:' como uma única linha")
 
         self.modulos_completos.add("intermediario_completo")
 
     def executar_licoes_avancado(self):
         # Lição 1: Programação Orientada a Objetos
-        self.show_lesson("Módulo Avançado - Em Desenvolvimento",
-            """Este módulo está em desenvolvimento e incluirá:
+        self.show_lesson("Lição 1: Programação Orientada a Objetos",
+            """Classes são a base da Programação Orientada a Objetos (POO).
+
+            class NomeClasse:
+                def __init__(self, parametros):
+                    self.atributos = parametros
+                
+                def metodo(self):
+                    return resultado
             
-            - Programação Orientada a Objetos
-            - Decoradores
-            - Geradores e Iteradores
-            - Concorrência e Paralelismo
-            - Testes Unitários
+            Conceitos importantes:
+            - Encapsulamento: _privado, __muito_privado
+            - Herança: class Filha(Pai)
+            - Polimorfismo: mesma interface, diferentes implementações
+            - Composição: ter vs ser""")
+
+        self.run_practice("Classes",
+            "Crie uma classe Pessoa com __init__ recebendo nome e idade",
+            ["class Pessoa:\n    def __init__(self, nome, idade):\n        self.nome = nome\n        self.idade = idade",
+             "class Pessoa:\n    def __init__(self, nome, idade):\n        self.nome, self.idade = nome, idade"],
+            example="class Pessoa:\n    def __init__(self, nome, idade):\n        self.nome = nome\n        self.idade = idade",
+            dica="Use class, __init__ com self e defina os atributos",
+            is_multiline=True)
+
+        # Lição 2: Decoradores
+        self.show_lesson("Lição 2: Decoradores",
+            """Decoradores são funções que modificam outras funções.
             
-            Volte em breve para mais conteúdo!""")
-        
-        self.modulos_completos.add("avancado_preview")
+            def meu_decorador(func):
+                def wrapper(*args, **kwargs):
+                    # código antes
+                    resultado = func(*args, **kwargs)
+                    # código depois
+                    return resultado
+                return wrapper
+            
+            @meu_decorador
+            def funcao():
+                pass
+            
+            Decoradores comuns:
+            - @property
+            - @classmethod
+            - @staticmethod
+            - @functools.lru_cache""")
+
+        self.run_practice("Decoradores",
+            "Crie um decorador que mede o tempo de execução de uma função",
+            ["""def medir_tempo(func):
+                def wrapper(*args, **kwargs):
+                    import time
+                    inicio = time.time()
+                    resultado = func(*args, **kwargs)
+                    fim = time.time()
+                    print(f'Tempo: {fim - inicio:.2f}s')
+                    return resultado
+                return wrapper"""],
+            example="def medir_tempo(func):\n    def wrapper(*args, **kwargs):\n        import time\n        inicio = time.time()\n        resultado = func(*args, **kwargs)\n        print(f'Tempo: {time.time() - inicio:.2f}s')\n        return resultado\n    return wrapper",
+            dica="Use um decorador com wrapper que mede tempo inicial e final",
+            is_multiline=True)
+
+        # Lição 3: Geradores e Iteradores
+        self.show_lesson("Lição 3: Geradores e Iteradores",
+            """Geradores são funções que geram valores sob demanda.
+            
+            def gerador():
+                yield valor1
+                yield valor2
+            
+            Iteradores implementam __iter__ e __next__
+            
+            Exemplos:
+            - range() é um gerador
+            - map() retorna um iterador
+            - (x for x in lista) é uma expressão geradora""")
+
+        self.run_practice("Geradores",
+            "Crie um gerador de números pares até n",
+            ["def pares(n):\n    for i in range(0, n+1, 2):\n        yield i",
+             "def pares(n):\n    i = 0\n    while i <= n:\n        yield i\n        i += 2"],
+            example="def pares(n):\n    for i in range(0, n+1, 2):\n        yield i",
+            dica="Use yield para gerar números pares de 0 até n",
+            is_multiline=True)
+
+        # Lição 4: Concorrência e Paralelismo
+        self.show_lesson("Lição 4: Concorrência e Paralelismo",
+            """Python oferece várias formas de concorrência:
+            
+            1. threading - para I/O bound
+            2. multiprocessing - para CPU bound
+            3. asyncio - para I/O bound assíncrono
+            
+            async def funcao():
+                await operacao_async()
+            
+            with ThreadPoolExecutor() as executor:
+                futures = executor.submit(funcao)""")
+
+        self.run_practice("Async",
+            "Crie uma função assíncrona que espera n segundos",
+            ["async def esperar(n):\n    await asyncio.sleep(n)",
+             "async def esperar(n):\n    import asyncio\n    await asyncio.sleep(n)"],
+            example="async def esperar(n):\n    await asyncio.sleep(n)",
+            dica="Use async def e await asyncio.sleep()",
+            is_multiline=True)
+
+        # Lição 5: Testes e Debugging
+        self.show_lesson("Lição 5: Testes e Debugging",
+            """Testes são essenciais para código confiável.
+            
+            import unittest
+            
+            class TesteMeuCodigo(unittest.TestCase):
+                def setUp(self):
+                    # preparação
+                
+                def test_funcionalidade(self):
+                    self.assertEqual(esperado, resultado)
+            
+            Tipos de testes:
+            - Unitários: unittest, pytest
+            - Integração: entre componentes
+            - End-to-end: sistema completo""")
+
+        self.run_practice("Testes",
+            "Crie um teste unitário para uma função soma(a, b)",
+            ["""class TesteSoma(unittest.TestCase):
+                def test_soma(self):
+                    self.assertEqual(soma(2, 3), 5)
+                    self.assertEqual(soma(-1, 1), 0)"""],
+            example="class TesteSoma(unittest.TestCase):\n    def test_soma(self):\n        self.assertEqual(soma(2, 3), 5)",
+            dica="Crie uma classe de teste que herda de unittest.TestCase",
+            is_multiline=True)
+
+        # Lição 6: Design Patterns
+        self.show_lesson("Lição 6: Design Patterns",
+            """Padrões de projeto são soluções reutilizáveis.
+            
+            Tipos principais:
+            1. Criacionais (Factory, Singleton)
+            2. Estruturais (Adapter, Decorator)
+            3. Comportamentais (Observer, Strategy)
+            
+            Exemplo de Singleton:
+            class Singleton:
+                _instance = None
+                def __new__(cls):
+                    if cls._instance is None:
+                        cls._instance = super().__new__(cls)
+                    return cls._instance""")
+
+        self.run_practice("Design Patterns",
+            "Implemente o padrão Factory para criar formas geométricas",
+            ["""class FormaFactory:
+                @staticmethod
+                def criar_forma(tipo):
+                    if tipo == "circulo":
+                        return Circulo()
+                    elif tipo == "quadrado":
+                        return Quadrado()
+                    raise ValueError("Forma inválida")"""],
+            example="class FormaFactory:\n    @staticmethod\n    def criar_forma(tipo):\n        if tipo == \"circulo\":\n            return Circulo()",
+            dica="Use um método estático que retorna diferentes classes baseado no tipo",
+            is_multiline=True)
+
+        self.modulos_completos.add("avancado_completo")
 
     def finalizar_tutorial(self):
         self.print_header("Parabéns!")
