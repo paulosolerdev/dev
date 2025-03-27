@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from ttkthemes import ThemedStyle
 import json
 import sqlite3
 from datetime import datetime
@@ -8,7 +9,7 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 import syntax_highlighter
 import markdown2
-from ttkthemes import ThemedStyle
+import os
 
 @dataclass
 class Exercicio:
@@ -77,19 +78,85 @@ class BancoDados:
 
 class TutorialGUI:
     def __init__(self):
-        self.setup_estilos()
-        self.setup_janela()
-        self.carregar_configuracoes()
-        self.db = BancoDados()
-        self.setup_variaveis()
-        self.criar_widgets_principais()
-        self.carregar_licoes()
+        # Criar a janela principal
+        self.root = tk.Tk()
+        self.root.title("Tutorial Python")
+        self.root.geometry("1024x768")
         
+        # IMPORTANTE: Inicializar o ThemedStyle antes de qualquer outra configuração de estilo
+        self.style = ThemedStyle(self.root)
+        
+        # Inicializar o dicionário de usuário
+        self.usuario = {
+            "nome": "",
+            "nivel": 1,
+            "pontos": 0,
+            "exercicios_completos": set(),
+            "licoes_completas": set(),
+            "ultima_sessao": None
+        }
+        
+        # Inicializar o estado atual
+        self.estado_atual = {
+            "licao_atual": None,
+            "exercicio_atual": None
+        }
+        
+        # Configurar estilos
+        self.setup_estilos()
+        
+        # Carregar configurações
+        self.carregar_configuracoes()
+        
+        # Carregar conteúdo das lições
+        self.carregar_conteudo()
+        
+        # Inicializar banco de dados
+        try:
+            self.conn = sqlite3.connect('tutorial.db')
+            self.cursor = self.conn.cursor()
+            
+            # Criar tabelas necessárias
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    nivel INTEGER DEFAULT 1,
+                    pontos INTEGER DEFAULT 0,
+                    ultima_sessao TEXT
+                )
+            ''')
+            
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS progresso (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usuario_id INTEGER,
+                    licao_id INTEGER,
+                    exercicio_id INTEGER,
+                    completado INTEGER,
+                    codigo_salvo TEXT,
+                    pontos INTEGER,
+                    data_conclusao TEXT,
+                    tempo_gasto INTEGER,
+                    FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+                )
+            ''')
+            
+            self.conn.commit()
+            
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao conectar ao banco de dados: {str(e)}")
+        
+        # Criar interface principal
+        self.criar_interface()
+
+    def executar(self):
+        """Inicia a execução do tutorial"""
+        self.root.mainloop()
+
     def setup_estilos(self):
         """Configura os estilos e temas da interface"""
-        self.style = ThemedStyle()
-        self.style.set_theme("arc")  # Tema moderno
-        
+        # Cores
         self.cores = {
             'primaria': '#2196F3',
             'secundaria': '#FFC107',
@@ -101,6 +168,7 @@ class TutorialGUI:
             'destaque': '#E3F2FD'
         }
         
+        # Fontes
         self.fontes = {
             'titulo': ('Roboto', 24, 'bold'),
             'subtitulo': ('Roboto', 18),
@@ -326,34 +394,74 @@ class TutorialGUI:
         """Verifica a resposta do usuário executando os testes"""
         codigo = self.codigo_editor.get('1.0', 'end-1c')
         
-        for teste in exercicio.testes:
-            try:
-                # Preparar ambiente de teste
-                namespace = {}
-                exec(codigo, namespace)
-                
-                # Executar teste
-                resultado = eval(teste['teste'], namespace)
-                
-                if resultado != eval(teste['esperado']):
+        # Criar ambiente isolado para testes
+        namespace = {}
+        
+        try:
+            # Executar o código do usuário
+            exec(codigo, namespace)
+            
+            # Verificar se houve erro de sintaxe
+            if not codigo.strip():
+                messagebox.showerror("Erro", "Por favor, digite seu código")
+                return False
+            
+            # Executar os testes do exercício
+            for teste in exercicio.testes:
+                try:
+                    # Preparar ambiente de teste
+                    resultado = eval(teste['teste'], namespace)
+                    esperado = eval(teste['esperado'])
+                    
+                    # Comparação mais flexível para listas
+                    if isinstance(resultado, list) and isinstance(esperado, list):
+                        if sorted(resultado) != sorted(esperado):
+                            messagebox.showerror(
+                                "Teste Falhou",
+                                f"Teste: {teste['descricao']}\n"
+                                f"Esperado: {esperado}\n"
+                                f"Seu resultado: {resultado}\n\n"
+                                "Dica: Verifique se sua lista contém os elementos corretos."
+                            )
+                            return False
+                    # Comparação para outros tipos
+                    elif resultado != esperado:
+                        messagebox.showerror(
+                            "Teste Falhou",
+                            f"Teste: {teste['descricao']}\n"
+                            f"Esperado: {esperado}\n"
+                            f"Seu resultado: {resultado}"
+                        )
+                        return False
+                    
+                except Exception as e:
                     messagebox.showerror(
-                        "Teste Falhou",
-                        f"Teste: {teste['descricao']}\n"
-                        f"Esperado: {teste['esperado']}\n"
-                        f"Obtido: {resultado}"
+                        "Erro na Execução",
+                        f"Erro ao executar teste: {teste['descricao']}\n"
+                        f"Erro: {str(e)}\n\n"
+                        "Dica: Verifique se você definiu todas as variáveis necessárias."
                     )
                     return False
-                    
-            except Exception as e:
-                messagebox.showerror(
-                    "Erro na Execução",
-                    f"Erro ao executar teste: {teste['descricao']}\n{str(e)}"
-                )
-                return False
+            
+            # Se chegou aqui, todos os testes passaram
+            messagebox.showinfo("Sucesso!", "Parabéns! Sua resposta está correta!")
+            self.exercicio_completo(exercicio)
+            return True
         
-        # Todos os testes passaram
-        self.exercicio_completo(exercicio)
-        return True
+        except SyntaxError as e:
+            messagebox.showerror(
+                "Erro de Sintaxe",
+                f"Há um erro de sintaxe no seu código:\n{str(e)}\n\n"
+                "Dica: Verifique se todos os parênteses e colchetes estão fechados corretamente."
+            )
+            return False
+        except Exception as e:
+            messagebox.showerror(
+                "Erro",
+                f"Ocorreu um erro ao executar seu código:\n{str(e)}\n\n"
+                "Dica: Verifique se você está usando os nomes corretos das variáveis."
+            )
+            return False
 
     def exercicio_completo(self, exercicio: Exercicio):
         """Processa a conclusão bem-sucedida de um exercício"""
@@ -450,7 +558,10 @@ class TutorialGUI:
 
     def setup_janela(self):
         """Configura a janela principal"""
-        self.root = tk.Tk()
+        # Usar a janela root já existente ao invés de criar uma nova
+        if not hasattr(self, 'root'):
+            self.root = tk.Tk()
+        
         self.root.title("Tutorial Python Interativo")
         self.root.geometry("1024x768")
         self.root.minsize(800, 600)
@@ -469,12 +580,13 @@ class TutorialGUI:
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
 
-        # Criar janela no canvas que conterá o frame
+        # Configurar o canvas e a scrollbar
         self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
-        
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        # Posicionar os elementos
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Configurar o scroll com o mouse
         self.scrollable_frame.bind('<Enter>', self._bound_to_mousewheel)
@@ -541,66 +653,164 @@ class TutorialGUI:
 
     def carregar_conteudo(self):
         """Carrega o conteúdo das lições e exercícios"""
-        self.licoes: Dict[int, Licao] = {
+        self.licoes = {
             1: Licao(
                 titulo="Fundamentos de Python",
                 descricao="Conceitos básicos da linguagem Python",
                 conteudo="""
                 Python é uma linguagem de programação de alto nível, interpretada e de propósito geral.
-                Suas principais características são:
                 
+                Características principais:
                 • Sintaxe clara e legível
                 • Tipagem dinâmica
                 • Gerenciamento automático de memória
                 • Rica biblioteca padrão
                 • Grande comunidade e ecossistema
+                
+                Nesta lição você aprenderá:
+                1. Como criar e usar variáveis
+                2. Tipos de dados básicos
+                3. Operadores aritméticos e lógicos
+                4. Comentários e documentação
                 """,
                 exemplos=[
-                    "# Variáveis e tipos básicos\nx = 10\nnome = 'Python'\nativa = True",
-                    "# Estruturas de controle\nif x > 0:\n    print('Positivo')\nelse:\n    print('Negativo')",
-                    "# Loops\nfor i in range(5):\n    print(i)"
+                    "# Variáveis e tipos básicos\nx = 10\nnome = 'Python'\nativa = True\n\n# Operações básicas\ny = x + 5\nprint(f'Resultado: {y}')",
+                    "# Diferentes tipos de dados\ninteiro = 42\ndecimal = 3.14\ntexto = 'Olá'\nlista = [1, 2, 3]\n\nprint(type(inteiro))\nprint(type(decimal))",
+                    "# Operadores aritméticos\nsoma = 10 + 5\nsubtracao = 10 - 5\nmultiplicacao = 10 * 5\ndivisao = 10 / 5"
                 ],
                 exercicios=[
                     Exercicio(
-                        titulo="Calculadora Simples",
-                        descricao="Crie uma função que recebe dois números e retorna a soma",
-                        codigo_inicial="def soma(a, b):\n    # Seu código aqui\n    pass",
-                        codigo_resposta="def soma(a, b):\n    return a + b",
-                        dicas=["Utilize o operador +", "Não esqueça do return"],
+                        titulo="Criando Variáveis",
+                        descricao="Crie uma variável chamada 'mensagem' com o texto 'Olá, Python!'\n\n# Criando a primeira variável\nmensagem = 'Olá, Python!'\n\n# Mostrando o valor da variável\nprint(mensagem)",
+                        codigo_inicial="# Digite seu código aqui",
+                        codigo_resposta="mensagem = 'Olá, Python!'\nprint(mensagem)",
+                        dicas=["Use o operador = para atribuição", "Strings podem usar aspas simples ou duplas"],
+                        testes=[{"entrada": "", "saida": "Olá, Python!"}],
                         pontos=10
+                    ),
+                    Exercicio(
+                        titulo="Operações Matemáticas",
+                        descricao="Crie duas variáveis numéricas e realize uma multiplicação entre elas\n\n# Criando a primeira variável numérica\nnumero1 = 2\n\n# Criando a segunda variável numérica\nnumero2 = 3\n\n# Realizando a multiplicação e guardando o resultado em uma variável\nresultado = numero1 * numero2\n\n# Mostrando o resultado da multiplicação\nprint(f'A multiplicação de {numero1} x {numero2} = {resultado}')",
+                        codigo_inicial="# Crie as variáveis e faça a multiplicação\n",
+                        codigo_resposta="numero1 = 2\nnumero2 = 3\nresultado = numero1 * numero2\nprint(f'A multiplicação de {numero1} x {numero2} = {resultado}')",
+                        dicas=["Use o operador * para multiplicação", "Você pode escolher quaisquer números"],
+                        testes=[{"entrada": "", "saida": "A multiplicação de 2 x 3 = 6"}],
+                        pontos=15
+                    ),
+                    Exercicio(
+                        titulo="Strings e Formatação",
+                        descricao="Use f-strings para criar uma mensagem formatada\n\n# Definindo as variáveis\nnome = 'Python'\nversao = 3.9\n\n# Criando a mensagem formatada\nmensagem = f'Linguagem {nome} versão {versao}'\n\n# Mostrando a mensagem formatada\nprint(mensagem)",
+                        codigo_inicial="nome = 'Python'\nversao = 3.9\n# Crie a mensagem formatada\n",
+                        codigo_resposta="nome = 'Python'\nversao = 3.9\nmensagem = f'Linguagem {nome} versão {versao}'\nprint(mensagem)",
+                        dicas=["Use f antes das aspas para criar uma f-string", "Use chaves {} para inserir variáveis"],
+                        testes=[{"entrada": "", "saida": "Linguagem Python versão 3.9"}],
+                        pontos=20
                     )
                 ],
-                nivel_requerido=1,
-                pontos=100
+                pontos=50,
+                pre_requisitos=[],
+                tags=["básico", "iniciante", "variáveis"]
             ),
             2: Licao(
                 titulo="Estruturas de Dados",
-                descricao="Listas, tuplas, dicionários e conjuntos",
+                descricao="Listas, tuplas, dicionários e conjuntos em Python",
                 conteudo="""
-                Python oferece várias estruturas de dados built-in:
+                Python oferece várias estruturas de dados poderosas:
                 
-                • Listas: Sequências mutáveis [1, 2, 3]
-                • Tuplas: Sequências imutáveis (1, 2, 3)
-                • Dicionários: Mapeamentos chave-valor {'a': 1, 'b': 2}
-                • Conjuntos: Coleções não ordenadas de elementos únicos {1, 2, 3}
+                1. Listas []:
+                   • Sequências mutáveis e ordenadas
+                   • Podem conter diferentes tipos de dados
+                   • Métodos: append(), remove(), pop(), etc.
+                
+                2. Tuplas ():
+                   • Sequências imutáveis
+                   • Mais eficientes que listas
+                   • Úteis para dados que não devem mudar
+                
+                3. Dicionários {}:
+                   • Mapeamentos chave-valor
+                   • Acesso rápido por chave
+                   • Muito versáteis e amplamente usados
+                
+                4. Conjuntos set():
+                   • Coleções não ordenadas de elementos únicos
+                   • Operações matemáticas de conjuntos
+                   • Eliminação automática de duplicatas
                 """,
                 exemplos=[
-                    "# Listas\nlista = [1, 2, 3]\nlista.append(4)",
-                    "# Dicionários\ndict = {'nome': 'Python'}\ndict['versao'] = '3.9'",
-                    "# Conjuntos\nconjunto = {1, 2, 3}\nconjunto.add(4)"
+                    "# Listas\nfrutas = ['maçã', 'banana', 'laranja']\nfrutas.append('uva')\nprint(frutas[0])  # primeiro elemento",
+                    "# Dicionários\ncontato = {'nome': 'Ana', 'idade': 25}\ncontato['email'] = 'ana@email.com'\nprint(contato.keys())",
+                    "# Conjuntos\nnumeros = {1, 2, 3, 2, 1}  # duplicatas são removidas\nprint(numeros)\nnumeros.add(4)"
                 ],
                 exercicios=[
                     Exercicio(
                         titulo="Manipulação de Listas",
-                        descricao="Crie uma função que remove duplicatas de uma lista",
-                        codigo_inicial="def remove_duplicatas(lista):\n    # Seu código aqui\n    pass",
-                        codigo_resposta="def remove_duplicatas(lista):\n    return list(set(lista))",
-                        dicas=["Use set() para remover duplicatas", "Converta de volta para lista"],
+                        descricao="Crie uma lista de números e adicione um novo número ao final",
+                        codigo_inicial="# Crie a lista e adicione um número\n",
+                        codigo_resposta="numeros = [1, 2, 3]\nnumeros.append(4)",
+                        dicas=["Use [] para criar a lista", "Use o método append() para adicionar elementos"],
+                        testes=[{"entrada": "", "saida": ""}],
                         pontos=15
+                    ),
+                    Exercicio(
+                        titulo="Trabalhando com Dicionários",
+                        descricao="Crie um dicionário com informações de uma pessoa",
+                        codigo_inicial="# Crie o dicionário com nome e idade\n",
+                        codigo_resposta="pessoa = {'nome': 'João', 'idade': 30}",
+                        dicas=["Use {} para criar o dicionário", "Use aspas para as chaves de texto"],
+                        testes=[{"entrada": "", "saida": ""}],
+                        pontos=20
                     )
                 ],
-                nivel_requerido=1,
-                pontos=150
+                pontos=50,
+                pre_requisitos=[1],
+                tags=["estruturas de dados", "listas", "dicionários"]
+            ),
+            3: Licao(
+                titulo="Controle de Fluxo",
+                descricao="Estruturas condicionais e loops em Python",
+                conteudo="""
+                O controle de fluxo permite que seu programa tome decisões e repita ações:
+                
+                1. Estruturas Condicionais:
+                   • if, elif, else
+                   • Operadores de comparação
+                   • Operadores lógicos (and, or, not)
+                
+                2. Loops:
+                   • for: para iteração definida
+                   • while: para iteração com condição
+                   • break e continue
+                   • List comprehensions
+                """,
+                exemplos=[
+                    "# If-elif-else\nidade = 18\nif idade >= 18:\n    print('Maior de idade')\nelse:\n    print('Menor de idade')",
+                    "# Loop for\nfor i in range(5):\n    print(i)\n\n# Com lista\nfor fruta in ['maçã', 'banana']:\n    print(fruta)",
+                    "# While\ncontador = 0\nwhile contador < 5:\n    print(contador)\n    contador += 1"
+                ],
+                exercicios=[
+                    Exercicio(
+                        titulo="Estrutura Condicional",
+                        descricao="Crie um if-else para verificar se um número é positivo ou negativo",
+                        codigo_inicial="numero = 10\n# Escreva sua condição\n",
+                        codigo_resposta="numero = 10\nif numero > 0:\n    print('Positivo')\nelse:\n    print('Negativo')",
+                        dicas=["Use > para maior que", "Não esqueça dos dois pontos :"],
+                        testes=[{"entrada": "", "saida": ""}],
+                        pontos=20
+                    ),
+                    Exercicio(
+                        titulo="Loop For",
+                        descricao="Crie um loop que imprima os números de 1 a 5",
+                        codigo_inicial="# Escreva seu loop\n",
+                        codigo_resposta="for i in range(1, 6):\n    print(i)",
+                        dicas=["Use range() para gerar sequência", "range(1, 6) vai de 1 até 5"],
+                        testes=[{"entrada": "", "saida": ""}],
+                        pontos=20
+                    )
+                ],
+                pontos=60,
+                pre_requisitos=[1, 2],
+                tags=["controle de fluxo", "condicionais", "loops"]
             )
         }
 
@@ -720,24 +930,85 @@ class TutorialGUI:
         if not nome.strip():
             messagebox.showerror("Erro", "Por favor, digite seu nome")
             return
-            
+        
         self.usuario["nome"] = nome
         self.usuario["ultima_sessao"] = datetime.now().isoformat()
-        self.salvar_progresso()
-        self.mostrar_menu_principal()
+        
+        # Inicializa o banco de dados se necessário
+        try:
+            self.cursor.execute('''
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    nome TEXT NOT NULL,
+                    nivel INTEGER DEFAULT 1,
+                    pontos INTEGER DEFAULT 0,
+                    ultima_sessao TEXT
+                )
+            ''')
+            
+            # Verifica se o usuário já existe
+            self.cursor.execute('SELECT id FROM usuarios WHERE nome = ?', (nome,))
+            resultado = self.cursor.fetchone()
+            
+            if resultado:
+                self.usuario['id'] = resultado[0]
+            else:
+                # Insere novo usuário
+                self.cursor.execute('''
+                    INSERT INTO usuarios (nome, nivel, pontos, ultima_sessao)
+                    VALUES (?, ?, ?, ?)
+                ''', (
+                    self.usuario['nome'],
+                    self.usuario['nivel'],
+                    self.usuario['pontos'],
+                    self.usuario['ultima_sessao']
+                ))
+                self.usuario['id'] = self.cursor.lastrowid
+            
+            self.conn.commit()
+            self.mostrar_menu_principal()
+        
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao inicializar banco de dados: {str(e)}")
 
     def salvar_progresso(self):
         """Salva o progresso do usuário no banco de dados"""
-        self.cursor.execute('''
-            INSERT OR REPLACE INTO usuarios (nome, nivel, pontos, ultima_sessao)
-            VALUES (?, ?, ?, ?)
-        ''', (
-            self.usuario["nome"],
-            self.usuario["nivel"],
-            self.usuario["pontos"],
-            self.usuario["ultima_sessao"]
-        ))
-        self.conn.commit()
+        if not hasattr(self.usuario, 'id'):
+            return
+        
+        try:
+            self.cursor.execute('''
+                UPDATE usuarios 
+                SET nivel = ?, pontos = ?, ultima_sessao = ?
+                WHERE id = ?
+            ''', (
+                self.usuario['nivel'],
+                self.usuario['pontos'],
+                datetime.now().isoformat(),
+                self.usuario['id']
+            ))
+            
+            if self.estado_atual['licao_atual'] and self.estado_atual['exercicio_atual']:
+                self.cursor.execute('''
+                    INSERT INTO progresso (
+                        usuario_id, licao_id, exercicio_id, completado,
+                        codigo_salvo, pontos, data_conclusao, tempo_gasto
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    self.usuario['id'],
+                    self.estado_atual['licao_atual'],
+                    self.estado_atual['exercicio_atual'],
+                    1,  # completado
+                    '',  # código salvo
+                    self.usuario['pontos'],
+                    datetime.now().isoformat(),
+                    0  # tempo gasto
+                ))
+            
+            self.conn.commit()
+        
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao salvar progresso: {str(e)}")
 
     def mostrar_menu_principal(self):
         """Mostra o menu principal com as lições disponíveis"""
@@ -795,10 +1066,6 @@ class TutorialGUI:
             style="Primario.TButton",
             command=lambda: self.mostrar_licao(licao_id)
         ).pack(pady=10)
-
-    def executar(self):
-        """Inicia a execução do programa"""
-        self.root.mainloop()
 
     def mostrar_licao(self, licao_id):
         """Mostra o conteúdo de uma lição específica"""
@@ -989,6 +1256,274 @@ class TutorialGUI:
             self.scrollable_frame,
             text="Voltar ao Menu Principal",
             style="Primario.TButton",
+            command=self.mostrar_menu_principal
+        ).pack(pady=20)
+
+    def carregar_configuracoes(self):
+        """Carrega as configurações do tutorial"""
+        # Configurações padrão
+        self.config = {
+            'tema': 'clam',  # Alterado de 'arc' para 'clam'
+            'idioma': 'pt_BR',
+            'fonte_tamanho': 12,
+            'auto_save': True,
+            'mostrar_dicas': True,
+            'tempo_maximo_exercicio': 3600,  # 1 hora em segundos
+            'pontos_base': 10,
+            'nivel_inicial': 1
+        }
+        
+        # Tenta carregar configurações salvas
+        try:
+            if os.path.exists('config.json'):
+                with open('config.json', 'r', encoding='utf-8') as f:
+                    saved_config = json.load(f)
+                    self.config.update(saved_config)
+        except Exception as e:
+            messagebox.showwarning(
+                "Aviso",
+                "Não foi possível carregar as configurações. Usando configurações padrão."
+            )
+        
+        # Aplica as configurações
+        tema = self.config['tema']
+        temas_disponiveis = self.style.theme_names()
+        if tema in temas_disponiveis:
+            self.style.theme_use(tema)
+        else:
+            print(f"Tema '{tema}' não encontrado. Temas disponíveis: {temas_disponiveis}")
+            self.style.theme_use('clam')  # Alterado de 'arc' para 'clam'
+
+    def criar_interface(self):
+        """Cria a interface principal do tutorial"""
+        # Setup da janela principal
+        self.setup_janela()
+        
+        # Criar widgets principais
+        self.criar_widgets_principais()
+        
+        # Mostrar tela inicial
+        self.criar_tela_inicial()
+
+    def mostrar_ranking(self):
+        """Exibe o ranking dos usuários"""
+        self.limpar_tela()
+        
+        # Cabeçalho
+        tk.Label(
+            self.scrollable_frame,
+            text="Ranking de Usuários",
+            font=self.fontes['titulo'],
+            fg=self.cores['primaria']
+        ).pack(pady=20)
+        
+        # Buscar top 10 usuários do banco de dados
+        ranking = self.db.get_ranking(limit=10)
+        
+        # Frame para a lista de ranking
+        ranking_frame = tk.Frame(self.scrollable_frame)
+        ranking_frame.pack(fill=tk.BOTH, expand=True, pady=20)
+        
+        # Cabeçalho da tabela
+        headers = ["Posição", "Usuário", "Nível", "Pontos", "Exercícios Completos"]
+        for col, header in enumerate(headers):
+            tk.Label(
+                ranking_frame,
+                text=header,
+                font=self.fontes['subtitulo'],
+                fg=self.cores['texto_secundario']
+            ).grid(row=0, column=col, padx=10, pady=5)
+        
+        # Preencher dados do ranking
+        for pos, usuario in enumerate(ranking, 1):
+            tk.Label(ranking_frame, text=str(pos)).grid(row=pos, column=0, padx=10, pady=5)
+            tk.Label(ranking_frame, text=usuario['username']).grid(row=pos, column=1, padx=10, pady=5)
+            tk.Label(ranking_frame, text=str(usuario['nivel'])).grid(row=pos, column=2, padx=10, pady=5)
+            tk.Label(ranking_frame, text=str(usuario['pontos'])).grid(row=pos, column=3, padx=10, pady=5)
+            tk.Label(ranking_frame, text=str(usuario['exercicios_completos'])).grid(row=pos, column=4, padx=10, pady=5)
+        
+        # Botão para voltar
+        ttk.Button(
+            self.scrollable_frame,
+            text="Voltar ao Menu",
+            style="Secundario.TButton",
+            command=self.mostrar_menu_principal
+        ).pack(pady=20)
+
+    def mostrar_configuracoes(self):
+        """Mostra a tela de configurações do tutorial"""
+        self.limpar_tela()
+        
+        # Cabeçalho
+        tk.Label(
+            self.scrollable_frame,
+            text="Configurações",
+            font=self.fontes['titulo'],
+            fg=self.cores['primaria']
+        ).pack(pady=20)
+        
+        # Frame para as configurações
+        config_frame = tk.Frame(self.scrollable_frame)
+        config_frame.pack(fill=tk.BOTH, expand=True, pady=20, padx=50)
+        
+        # Tema
+        tk.Label(
+            config_frame,
+            text="Tema:",
+            font=self.fontes['subtitulo']
+        ).pack(anchor='w', pady=(10,5))
+        
+        tema_var = tk.StringVar(value=self.config['tema'])
+        tema_combo = ttk.Combobox(
+            config_frame,
+            textvariable=tema_var,
+            values=self.style.theme_names(),
+            state='readonly'
+        )
+        tema_combo.pack(fill=tk.X, pady=(0,10))
+        
+        # Tamanho da fonte
+        tk.Label(
+            config_frame,
+            text="Tamanho da Fonte:",
+            font=self.fontes['subtitulo']
+        ).pack(anchor='w', pady=(10,5))
+        
+        fonte_var = tk.IntVar(value=self.config['fonte_tamanho'])
+        fonte_scale = ttk.Scale(
+            config_frame,
+            from_=8,
+            to=24,
+            variable=fonte_var,
+            orient='horizontal'
+        )
+        fonte_scale.pack(fill=tk.X, pady=(0,10))
+        
+        # Auto-save
+        autosave_var = tk.BooleanVar(value=self.config['auto_save'])
+        ttk.Checkbutton(
+            config_frame,
+            text="Auto-save",
+            variable=autosave_var
+        ).pack(anchor='w', pady=5)
+        
+        # Mostrar dicas
+        dicas_var = tk.BooleanVar(value=self.config['mostrar_dicas'])
+        ttk.Checkbutton(
+            config_frame,
+            text="Mostrar Dicas",
+            variable=dicas_var
+        ).pack(anchor='w', pady=5)
+        
+        # Frame para botões
+        botoes_frame = tk.Frame(self.scrollable_frame)
+        botoes_frame.pack(fill=tk.X, pady=20)
+        
+        def salvar_configuracoes():
+            """Salva as configurações alteradas"""
+            self.config.update({
+                'tema': tema_var.get(),
+                'fonte_tamanho': fonte_var.get(),
+                'auto_save': autosave_var.get(),
+                'mostrar_dicas': dicas_var.get()
+            })
+            
+            # Salvar no arquivo
+            with open('config.json', 'w', encoding='utf-8') as f:
+                json.dump(self.config, f, indent=4)
+            
+            # Aplicar tema
+            self.style.theme_use(self.config['tema'])
+            
+            messagebox.showinfo("Sucesso", "Configurações salvas com sucesso!")
+            self.mostrar_menu_principal()
+        
+        # Botões
+        ttk.Button(
+            botoes_frame,
+            text="Salvar",
+            style="Primario.TButton",
+            command=salvar_configuracoes
+        ).pack(side=tk.RIGHT, padx=20)
+        
+        ttk.Button(
+            botoes_frame,
+            text="Cancelar",
+            style="Secundario.TButton",
+            command=self.mostrar_menu_principal
+        ).pack(side=tk.LEFT, padx=20)
+
+    def mostrar_ajuda(self):
+        """Mostra a tela de ajuda do tutorial"""
+        self.limpar_tela()
+        
+        # Cabeçalho
+        tk.Label(
+            self.scrollable_frame,
+            text="Ajuda",
+            font=self.fontes['titulo'],
+            fg=self.cores['primaria']
+        ).pack(pady=20)
+        
+        # Conteúdo da ajuda
+        ajuda_frame = tk.Frame(self.scrollable_frame)
+        ajuda_frame.pack(fill=tk.BOTH, expand=True, pady=20, padx=50)
+        
+        # Tópicos de ajuda
+        topicos = [
+            ("Como Usar o Tutorial", """
+            1. Escolha uma lição no menu principal
+            2. Leia o conteúdo teórico
+            3. Complete os exercícios práticos
+            4. Ganhe pontos e avance de nível
+            """),
+            ("Exercícios", """
+            - Leia atentamente o enunciado
+            - Digite seu código no editor
+            - Clique em 'Verificar Resposta'
+            - Se necessário, use as dicas disponíveis
+            """),
+            ("Atalhos do Teclado", """
+            Ctrl+S: Salvar código
+            Ctrl+Z: Desfazer
+            Ctrl+Y: Refazer
+            F5: Executar código
+            """),
+            ("Dúvidas Frequentes", """
+            - Como salvar meu progresso?
+              O progresso é salvo automaticamente
+
+            - Como recuperar uma lição?
+              Use o menu principal para voltar a qualquer lição
+
+            - Como obter ajuda adicional?
+              Entre em contato pelo menu Suporte
+            """)
+        ]
+        
+        for titulo, conteudo in topicos:
+            # Título do tópico
+            tk.Label(
+                ajuda_frame,
+                text=titulo,
+                font=self.fontes['subtitulo'],
+                fg=self.cores['texto_secundario']
+            ).pack(anchor='w', pady=(20,5))
+            
+            # Conteúdo do tópico
+            tk.Label(
+                ajuda_frame,
+                text=conteudo,
+                font=self.fontes['texto'],
+                justify=tk.LEFT,
+                wraplength=700
+            ).pack(anchor='w', padx=20)
+        
+        # Botão para voltar
+        ttk.Button(
+            self.scrollable_frame,
+            text="Voltar ao Menu",
+            style="Secundario.TButton",
             command=self.mostrar_menu_principal
         ).pack(pady=20)
 
