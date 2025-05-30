@@ -1,0 +1,35 @@
+/Estudos_Programacao
+│
+├── Python/
+│   ├── Fase_1_Fundamentos/
+│   │   ├── variaveis.py
+│   │   ├── condicionais.py
+│   │   └── ...
+│   ├── Fase_2_POO/
+│   │   ├── classes_basicas.py
+│   │   └── heranca_polimorfismo.py
+│   ├── Fase_3_Projetos_Simples/
+│   │   ├── calculadora.py
+│   │   └── gerador_senhas.py
+│   ├── Fase_4_Especializacao/
+│   │   ├── flask_app/
+│   │   └── data_analysis/
+│   └── README.md
+│
+├── C/
+│   ├── Fase_1_Fundamentos/
+│   │   ├── hello_world.c
+│   │   └── loops.c
+│   ├── Fase_2_Ponteiros/
+│   │   ├── ponteiros_basico.c
+│   │   └── string_com_ponteiros.c
+│   ├── Fase_3_Estruturas/
+│   │   ├── lista_encadeada.c
+│   │   └── pilha.c
+│   ├── Fase_4_Projetos/
+│   │   ├── agenda_struct.c
+│   │   └── jogo_da_velha.c
+│   └── README.md
+│
+└── Checklist_Estudios.pdf
+
